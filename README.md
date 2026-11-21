@@ -23,7 +23,10 @@ Orbbec Astra Pro S M 上位机（Qt6 / C++17）。
 ## 依赖（Arch Linux）
 
 ```
-pacman -S orbbec-openni2 qt6-base opencv cmake
+pacman -S qt6-base opencv cmake
+
+# orbbec-openni2 在 AUR，需用 AUR helper 或 makepkg 安装
+yay -S orbbec-openni2    # 或 paru -S orbbec-openni2
 ```
 
 ## 构建与运行
