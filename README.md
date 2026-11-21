@@ -41,9 +41,3 @@ cmake --build build
 3. **本机内核 sysfs 无 `format` 文件**：区分 V4L2 采集节点与 metadata 节点用 `/sys/class/video4linux/videoN/index`（0 = 采集，1 = metadata），见 `RgbCamera::listDevices`。
 4. 驱动广播的部分分辨率/格式组合无法启动（如 1280×720）；界面列出设备广播的全部组合，选中不可用组合时流启动失败、状态栏报错。
 5. **镜像（Mirror）**：Depth / IR 均支持水平镜像，但驱动 `STREAM_PROPERTY_MIRRORING` 语义是反的——`setMirroringEnabled(false)` 才产生翻转（默认 `true`=不翻转），且该属性要在流 `start()` **之后**动态设置才生效（start 前设置会被忽略）。`OpenNICamera::applyMirroring()` 已做映射。
-
-
-
-## TODO
-
-1. UI界面只显示了深度 VID/PID 2bc5:0403,实际硬件为双USB设备

@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QStringList>
 #include <QVBoxLayout>
 
 namespace {
@@ -39,6 +40,24 @@ QString astraRgbDevice()
             return d.deviceFile;
     }
     return {};
+}
+
+// Astra Pro S M is two USB devices: the depth/IR MCU (2bc5:0403, OpenNI2)
+// and the RGB UVC camera (2bc5:0501). Both are shown in the header.
+constexpr int kAstraDepthPid = 0x0403;
+
+QString usbId(int vid, int pid)
+{
+    return QString("%1:%2")
+        .arg(vid, 4, 16, QChar('0'))
+        .arg(pid, 4, 16, QChar('0'));
+}
+
+// Header badge: coloured status dot + device label + state.
+QString badgeText(const QColor& dot, const QString& device, const QString& state)
+{
+    return QString("<span style='color:%1'>●</span>&nbsp; %2 &nbsp;·&nbsp; %3")
+        .arg(dot.name(), device, state);
 }
 
 // Select the combo entry whose data(role) equals value; no-op if absent.
@@ -150,10 +169,26 @@ QWidget* MainWindow::buildHeader()
 
     h->addStretch(1);
 
-    deviceBadge_ = new QLabel(tr("●  not connected"));
+    deviceBadge_ = new QLabel;
     deviceBadge_->setObjectName("deviceBadge");
     h->addWidget(deviceBadge_);
+
+    rgbBadge_ = new QLabel;
+    rgbBadge_->setObjectName("deviceBadge");
+    h->addWidget(rgbBadge_);
+
+    setDeviceBadges(false, false);
     return header;
+}
+
+void MainWindow::setDeviceBadges(bool depthOnline, bool rgbOnline)
+{
+    const QString depthDev = tr("Depth/IR %1").arg(usbId(RgbCamera::kOrbbecVid, kAstraDepthPid));
+    const QString rgbDev = tr("RGB %1").arg(usbId(RgbCamera::kOrbbecVid, RgbCamera::kAstraRgbPid));
+    deviceBadge_->setText(badgeText(depthOnline ? Accent::ok : Accent::warn, depthDev,
+                                    depthOnline ? tr("online") : tr("offline")));
+    rgbBadge_->setText(badgeText(rgbOnline ? Accent::ok : Accent::warn, rgbDev,
+                                 rgbOnline ? tr("online") : tr("not found")));
 }
 
 QWidget* MainWindow::buildControls()
@@ -566,13 +601,13 @@ void MainWindow::restartAll()
     bool rgbOn = rgbEnableChk_->isChecked();
 
     // --- OpenNI2: depth + IR ---
+    OpenNICamera::Mode depthMode, irMode;
     if (!oni_.isOpen() && !oni_.open()) {
+        setDeviceBadges(false, !rgbDevice_.isEmpty());
         QMessageBox::warning(this, tr("OpenNI2"),
                              tr("Cannot open depth device:\n%1").arg(oni_.lastError()));
     } else {
-        deviceBadge_->setText(tr("●  %1  ·  online").arg(oni_.deviceInfo()));
-        statusLabel_->setText(oni_.deviceInfo());
-
+        setDeviceBadges(true, !rgbDevice_.isEmpty());
         const bool first = (depthResCombo_->count() == 0);
         if (first) {
             populateResCombo(depthResCombo_, openni::SENSOR_DEPTH);
@@ -594,8 +629,8 @@ void MainWindow::restartAll()
             irOn = irEnableChk_->isChecked();
             rgbOn = rgbEnableChk_->isChecked();
         }
-        const auto depthMode = currentDepthMode();
-        const auto irMode = currentIrMode();
+        depthMode = currentDepthMode();
+        irMode = currentIrMode();
         if (!oni_.startStreams(depthOn, depthMode, irOn, irMode)) {
             qWarning() << "stream start failed:" << oni_.lastError();
             statusLabel_->setText(oni_.lastError());
@@ -627,6 +662,8 @@ void MainWindow::restartAll()
         rgbDevice_ = dev;
         populateRgbModes();
     }
+    setDeviceBadges(oni_.isOpen(), !rgbDevice_.isEmpty());
+
     // Only restart the UVC stream when its actual config changed: toggling
     // depth/IR also calls restartAll(), and re-opening UVC would drop frames.
     RgbConfig want;
@@ -636,6 +673,20 @@ void MainWindow::restartAll()
     want.w = rgbResCombo_->currentData(RoleW).toInt();
     want.h = rgbResCombo_->currentData(RoleH).toInt();
     want.fps = rgbFpsCombo_->currentData(RoleFps).toInt();
+
+    // Status bar: running mode summary (the header already carries VID:PID).
+    // Transient messages (errors, saved path) stay until one replaces them.
+    QStringList parts;
+    parts << (depthOn ? tr("Depth %1").arg(depthMode.toString()) : tr("Depth off"));
+    parts << (irOn ? tr("IR %1").arg(irMode.toString()) : tr("IR off"));
+    parts << (want.enabled ? tr("RGB %1×%2@%3 %4")
+                                 .arg(want.w).arg(want.h).arg(want.fps).arg(want.fmt)
+                           : tr("RGB off"));
+    const QString summary = parts.join(QStringLiteral("  ·  "));
+    if (statusLabel_->text().isEmpty() || statusLabel_->text() == defaultStatus_)
+        statusLabel_->setText(summary);
+    defaultStatus_ = summary;
+
     if (want == rgbConfig_)
         return;
 

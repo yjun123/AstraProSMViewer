@@ -27,6 +27,7 @@ private slots:
 private:
     QWidget* buildControls();
     QWidget* buildHeader();
+    void setDeviceBadges(bool depthOnline, bool rgbOnline);
     void populateResCombo(QComboBox* cb, openni::SensorType type);
     void populateFmtCombo(QComboBox* cb, openni::SensorType type);
     void populateFpsCombo(QComboBox* cb, openni::SensorType type, int w, int h,
@@ -49,7 +50,9 @@ private:
     StreamView* irView_ = nullptr;
     StreamView* rgbView_ = nullptr;
     QLabel* statusLabel_ = nullptr;
-    QLabel* deviceBadge_ = nullptr;
+    QString defaultStatus_; // device summary currently shown in the status bar
+    QLabel* deviceBadge_ = nullptr; // depth/IR MCU (2bc5:0403)
+    QLabel* rgbBadge_ = nullptr;    // RGB UVC camera (2bc5:0501)
 
     // Controls.
     QCheckBox* depthEnableChk_ = nullptr;
