@@ -30,6 +30,17 @@ QString settingsFile()
     return QCoreApplication::applicationDirPath() + QStringLiteral("/AstraProSMViewer.ini");
 }
 
+// Locates the on-board RGB UVC camera (2bc5:0501) among V4L2 capture nodes.
+// Empty if the camera is not present.
+QString astraRgbDevice()
+{
+    for (const auto& d : RgbCamera::listDevices()) {
+        if (d.vid == RgbCamera::kOrbbecVid && d.pid == RgbCamera::kAstraRgbPid)
+            return d.deviceFile;
+    }
+    return {};
+}
+
 // Select the combo entry whose data(role) equals value; no-op if absent.
 void selectByData(QComboBox* cb, int role, const QVariant& value)
 {
@@ -244,7 +255,6 @@ QWidget* MainWindow::buildControls()
     rgbEnableChk_ = new QCheckBox(tr("Enabled"));
     rgbEnableChk_->setChecked(true);
     connect(rgbEnableChk_, &QCheckBox::toggled, this, [this](bool on) {
-        rgbDeviceCombo_->setEnabled(on);
         rgbFormatCombo_->setEnabled(on);
         rgbResCombo_->setEnabled(on);
         rgbFpsCombo_->setEnabled(on);
@@ -254,24 +264,9 @@ QWidget* MainWindow::buildControls()
         restartAll();
     });
     rfl->addRow(rgbEnableChk_);
-    rgbDeviceCombo_ = new QComboBox;
-    int astraIdx = -1;
-    for (const auto& d : RgbCamera::listDevices()) {
-        const QString label = d.vid
-            ? QString("%1 — %2 [%3:%4]")
-                  .arg(d.deviceFile, d.name)
-                  .arg(d.vid, 4, 16, QChar('0'))
-                  .arg(d.pid, 4, 16, QChar('0'))
-            : QString("%1 — %2").arg(d.deviceFile, d.name);
-        rgbDeviceCombo_->addItem(label, d.deviceFile);
-        // Match by USB VID:PID: 2bc5:0501 is the RGB UVC camera.
-        // (2bc5:0403 is the depth MCU — OpenNI2, no video node at all.)
-        if (astraIdx < 0 && d.vid == RgbCamera::kOrbbecVid && d.pid == RgbCamera::kAstraRgbPid)
-            astraIdx = rgbDeviceCombo_->count() - 1;
-    }
-    if (astraIdx >= 0)
-        rgbDeviceCombo_->setCurrentIndex(astraIdx);
-    rfl->addRow(tr("Device"), rgbDeviceCombo_);
+    // The on-board RGB camera is the only supported UVC device, so there is
+    // no device selector: locate it by VID:PID at startup.
+    rgbDevice_ = astraRgbDevice();
     rgbResCombo_ = new QComboBox;
     rfl->addRow(tr("Resolution"), rgbResCombo_);
     rgbFormatCombo_ = new QComboBox;
@@ -282,12 +277,8 @@ QWidget* MainWindow::buildControls()
     connect(snapRgbBtn_, &QPushButton::clicked, [this] { saveSnapshot(2); });
     rfl->addRow(snapRgbBtn_);
 
-    // Enumerate modes from the selected UVC device at runtime, then refresh
+    // Enumerate modes from the on-board UVC camera at runtime, then refresh
     // the fps dropdown whenever resolution/format changes.
-    connect(rgbDeviceCombo_, &QComboBox::currentIndexChanged, this, [this]() {
-        populateRgbModes();
-        restartAll();
-    });
     connect(rgbResCombo_, &QComboBox::currentIndexChanged, this, &MainWindow::refreshRgbFps);
     connect(rgbFormatCombo_, &QComboBox::currentIndexChanged, this, &MainWindow::refreshRgbFps);
     populateRgbModes();
@@ -427,8 +418,7 @@ void MainWindow::populateRgbModes()
     // holds it while streaming, which would make listModes fail with EBUSY.
     rgb_.close();
 
-    const QString dev = rgbDeviceCombo_->currentData().toString();
-    rgbModes_ = RgbCamera::listModes(dev);
+    rgbModes_ = RgbCamera::listModes(rgbDevice_);
 
     // Resolution: distinct (w,h) pairs advertised by the UVC device.
     {
@@ -517,7 +507,6 @@ void MainWindow::saveConfig()
     s.setValue("ir/mirror", irMirrorChk_->isChecked());
 
     s.setValue("rgb/enabled", rgbEnableChk_->isChecked());
-    s.setValue("rgb/device", rgbDeviceCombo_->currentData().toString());
     s.setValue("rgb/width", rgbResCombo_->currentData(RoleW).toInt());
     s.setValue("rgb/height", rgbResCombo_->currentData(RoleH).toInt());
     s.setValue("rgb/format", rgbFormatCombo_->currentData(RoleFmt).toString());
@@ -533,8 +522,8 @@ void MainWindow::restoreConfig()
         b4(depthFpsCombo_), b5(depthMirrorChk_),
         b6(irEnableChk_), b7(irResCombo_), b8(irFmtCombo_), b9(irFpsCombo_),
         b10(irMirrorChk_),
-        b11(rgbEnableChk_), b12(rgbDeviceCombo_), b13(rgbResCombo_),
-        b14(rgbFormatCombo_), b15(rgbFpsCombo_);
+        b11(rgbEnableChk_), b12(rgbResCombo_),
+        b13(rgbFormatCombo_), b14(rgbFpsCombo_);
 
     // Depth
     depthEnableChk_->setChecked(s.value("depth/enabled", true).toBool());
@@ -560,11 +549,9 @@ void MainWindow::restoreConfig()
     selectByData(irFpsCombo_, RoleFps, s.value("ir/fps").toInt());
     irMirrorChk_->setChecked(s.value("ir/mirror", false).toBool());
 
-    // RGB: restore device first, re-enumerate its modes, then overlay the
-    // saved resolution/format/fps.
+    // RGB: combos were already populated from the on-board UVC camera in
+    // buildControls(); overlay the saved resolution/format/fps.
     rgbEnableChk_->setChecked(s.value("rgb/enabled", true).toBool());
-    selectByData(rgbDeviceCombo_, Qt::UserRole, s.value("rgb/device").toString());
-    populateRgbModes();
     selectRes(rgbResCombo_, s.value("rgb/width", 1280).toInt(),
               s.value("rgb/height", 720).toInt());
     selectByData(rgbFormatCombo_, RoleFmt, s.value("rgb/format", "MJPG").toString());
@@ -633,11 +620,18 @@ void MainWindow::restartAll()
     }
 
     // --- RGB: UVC ---
+    // Re-locate the on-board camera on every apply so hot-plugging is picked
+    // up; re-enumerate its modes if the node changed.
+    const QString dev = astraRgbDevice();
+    if (dev != rgbDevice_) {
+        rgbDevice_ = dev;
+        populateRgbModes();
+    }
     // Only restart the UVC stream when its actual config changed: toggling
     // depth/IR also calls restartAll(), and re-opening UVC would drop frames.
     RgbConfig want;
     want.enabled = rgbOn;
-    want.dev = rgbDeviceCombo_->currentData().toString();
+    want.dev = rgbDevice_;
     want.fmt = rgbFormatCombo_->currentData(RoleFmt).toString();
     want.w = rgbResCombo_->currentData(RoleW).toInt();
     want.h = rgbResCombo_->currentData(RoleH).toInt();

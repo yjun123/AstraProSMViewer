@@ -63,11 +63,12 @@ private:
     QCheckBox* depthMirrorChk_ = nullptr;
     QCheckBox* irMirrorChk_ = nullptr;
     QCheckBox* rgbEnableChk_ = nullptr;
-    QComboBox* rgbDeviceCombo_ = nullptr;
     QComboBox* rgbFormatCombo_ = nullptr;
     QComboBox* rgbResCombo_ = nullptr;
     QComboBox* rgbFpsCombo_ = nullptr;
     QList<RgbCamera::Mode> rgbModes_;
+    // Fixed UVC node of the on-board RGB camera (2bc5:0501), located at startup.
+    QString rgbDevice_;
     struct RgbConfig {
         bool enabled = false;
         QString dev;

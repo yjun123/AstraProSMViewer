@@ -15,6 +15,8 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <algorithm>
+
 struct RgbCamera::CvCapture {
     cv::VideoCapture cap;
 };
@@ -65,12 +67,17 @@ QList<RgbCamera::DeviceInfo> RgbCamera::listDevices()
     QList<DeviceInfo> out;
     // /sys/class/video4linux/videoN/name holds the card name. Each UVC
     // camera exposes a capture node (index 0) plus a metadata node (index 1);
-    // only list capture nodes.
-    for (int i = 0;; ++i) {
-        const QString base = QString("/sys/class/video4linux/video%1").arg(i);
+    // only list capture nodes. Enumerate the directory instead of counting
+    // videoN from 0: node numbers are not contiguous (e.g. video2 can be
+    // absent while video3 exists).
+    QDir v4l("/sys/class/video4linux");
+    QStringList nodes = v4l.entryList({QStringLiteral("video*")}, QDir::Dirs, QDir::Name);
+    std::sort(nodes.begin(), nodes.end(), [](const QString& a, const QString& b) {
+        return a.mid(5).toInt() < b.mid(5).toInt();
+    });
+    for (const QString& node : nodes) {
+        const QString base = v4l.filePath(node);
         const QString nameFile = base + "/name";
-        if (!QFile::exists(nameFile))
-            break;
         QFile idx(base + "/index");
         if (idx.open(QIODevice::ReadOnly)) {
             if (idx.readAll().trimmed() != "0")
@@ -80,7 +87,7 @@ QList<RgbCamera::DeviceInfo> RgbCamera::listDevices()
         if (!f.open(QIODevice::ReadOnly))
             continue;
         DeviceInfo di;
-        di.deviceFile = QString("/dev/video%1").arg(i);
+        di.deviceFile = "/dev/" + node;
         di.name = QString::fromUtf8(f.readAll().trimmed());
         usbIdForNode(base, &di.vid, &di.pid);
         out.append(di);
