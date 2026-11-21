@@ -2,6 +2,7 @@
 #include "StreamView.h"
 
 #include <QApplication>
+#include <QDockWidget>
 
 namespace {
 
@@ -85,7 +86,10 @@ QPushButton#primaryBtn:pressed { background: #3aa8e0; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
 QScrollBar::handle:vertical { background: #262b37; border-radius: 5px; min-height: 30px; }
 QScrollBar::handle:vertical:hover { background: #3a4150; }
-QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
+QScrollBar::handle:horizontal { background: #262b37; border-radius: 5px; min-width: 30px; }
+QScrollBar::handle:horizontal:hover { background: #3a4150; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 )QSS";
 
@@ -96,9 +100,18 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     QApplication::setApplicationName("AstraProSMViewer");
     QApplication::setOrganizationName("E-Waste");
-    app.setStyleSheet(QString::fromLatin1(kStyleSheet));
 
     MainWindow w;
+    // Theme only our own widgets. Applying the stylesheet application-wide
+    // would also repaint QFileDialog/QMessageBox, whose system icon set does
+    // not match a dark palette; those dialogs keep the platform default.
+    w.setStyleSheet(QStringLiteral("QMainWindow { background: #0d0f13; }"));
+    const QString style = QString::fromLatin1(kStyleSheet);
+    if (auto* central = w.centralWidget())
+        central->setStyleSheet(style);
+    if (auto* dock = w.findChild<QDockWidget*>(QStringLiteral("controlsDock")))
+        dock->setStyleSheet(style);
+
     w.show();
     return QApplication::exec();
 }

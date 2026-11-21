@@ -46,5 +46,4 @@ cmake --build build
 
 ## TODO
 
-1. 部分界面文字显示不清，UI界面问题
 1. UI界面只显示了深度 VID/PID 2bc5:0403,实际硬件为双USB设备
